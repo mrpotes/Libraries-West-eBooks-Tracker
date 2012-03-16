@@ -12,10 +12,6 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import net.sourceforge.htmlunit.corejs.javascript.Context;
-import net.sourceforge.htmlunit.corejs.javascript.Script;
-import net.sourceforge.htmlunit.corejs.javascript.Scriptable;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,9 +20,8 @@ import potes.model.EBook;
 import potes.server.BookRepository;
 import potes.server.CredentialsRepository;
 
-import com.gargoylesoftware.htmlunit.Cache;
+import com.gargoylesoftware.htmlunit.ElementNotFoundException;
 import com.gargoylesoftware.htmlunit.WebClient;
-import com.gargoylesoftware.htmlunit.WebRequest;
 import com.gargoylesoftware.htmlunit.html.DomText;
 import com.gargoylesoftware.htmlunit.html.HtmlAnchor;
 import com.gargoylesoftware.htmlunit.html.HtmlInput;
@@ -69,25 +64,8 @@ public class IndexServlet extends HttpServlet {
 		Collection<EBook> books = bookRepository.getAll();
 
 		final WebClient client = new WebClient();
-		client.setThrowExceptionOnFailingStatusCode(false);
-		client.setJavaScriptEnabled(false);
-		client.setCache(new Cache() {
-			@Override
-			public Object getCachedObject(WebRequest request) {
-				if (request.getUrl().toExternalForm().endsWith("/jquery-1.4.4.js")) {
-					return new Script() {
-						
-						@Override
-						public Object exec(Context cx, Scriptable scope) {
-							return null;
-						}
-						
-					};
-				}
-				return super.getCachedObject(request);
-			}
-		});
-		HtmlPage page = client.getPage("http://librarieswest.libraryebooks.co.uk");
+		client.setRedirectEnabled(true);
+		HtmlPage page = client.getPage("https://librarieswest.libraryebooks.co.uk/site/EB/ebooks/user_login_main.asp");
 		
 		HtmlTextInput usernameField = page.getElementByName("login_username");
 		usernameField.setValueAttribute(c.getUsername());
@@ -95,7 +73,19 @@ public class IndexServlet extends HttpServlet {
 		passwordField.setValueAttribute(c.getPassword());
 		
 		page = ((HtmlInput)page.getElementByName("submitbutton")).click();
-		page = page.getAnchorByText("Latest Arrivals").click();
+		
+		HtmlPage latestPage = null;
+		long timeout = System.currentTimeMillis() + 2000;
+		while (latestPage == null && System.currentTimeMillis() < timeout) {
+			try {
+				latestPage = page.getAnchorByText("Latest Arrivals").click();
+			} catch (ElementNotFoundException e) {}
+		}
+		if (latestPage == null) {
+			response.getOutputStream().print(page.asXml());
+			return;
+		}
+		page = latestPage;
 		
 		for (HtmlAnchor anchor : page.getAnchors()) {
 			if (anchor.getHrefAttribute().contains("catpage3.asp") && anchor.getChildNodes().size() == 1 && anchor.getFirstChild() instanceof DomText) {
